@@ -88,7 +88,7 @@ def dimensionality_reduction(df):
     pca_models = {
         'location': PCA(n_components=1),
         'flat_features': PCA(n_components=1),
-        'area_features': PCA(n_components=1)
+        'area_features': PCA(n_components=1),
     }
 
     # Initialize Standard Scalers
@@ -99,7 +99,7 @@ def dimensionality_reduction(df):
     }
 
     # Define the variable groups
-    location_features = ['town', 'block', 'street_name']
+    location_features = ['town', 'block', 'street_name', 'latitude', 'longitude']
     flat_features = ['flat_type', 'flat_model', 'floor_area_sqm']
     area_features = ['subzone', 'planning_area', 'region']
 
@@ -175,12 +175,10 @@ def AddAuxiliaryFeatures(df, radius=1, shopping_malls_path=None, mrt_planned_pat
     
     return df
 
-def preprocess(df):
-    df = remove_no_use_features(df)
-    df = encode_features(df)
-    df = remove_outliers(df)
-    df = dimensionality_reduction(df)
-    df = AddAuxiliaryFeatures(df)
+def stupidNormalize(df):
+    # Normalize the lease_commence_date
+    df['lease_commence_date'] = df['lease_commence_date'] / 1000
+    return df
     
 
 
