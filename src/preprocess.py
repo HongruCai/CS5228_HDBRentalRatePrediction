@@ -6,6 +6,8 @@ from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import mahalanobis
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import NearestNeighbors
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import f_regression  # 用于回归任务
 
 def remove_no_use_features(df):
     # Drop the 'furnished' and 'elevation' columns
@@ -26,7 +28,8 @@ def encode_features(df):
 
     # 1. Convert rent_approval_date to numerical: months since "1970-01"
     df['rent_approval_date'] = pd.to_datetime(df['rent_approval_date'])
-    df['rent_approval_date'] = (df['rent_approval_date'].dt.year - 2021) * 12 + df['rent_approval_date'].dt.month - 1
+    df['rent_approval_date'] = (df['rent_approval_date'].dt.year - 2021) + (df['rent_approval_date'].dt.month - 1) / 12
+    df['rent_approval_date'] = df['rent_approval_date'].round(2)
 
     # 2. Convert categorical variables to numerical using label encoding
     for col, encoder in label_encoder_dict.items():
@@ -83,40 +86,51 @@ def remove_outliers(df):
         df = df_iso_forest_multi.copy()
     return df
 
-def dimensionality_reduction(df):
+def dimensionality_reduction(df_train, df_test):
     # Initialize PCA models (setting n_components=1 to get a single variable out of each group)
-    pca_models = {
-        'location': PCA(n_components=1),
-        'flat_features': PCA(n_components=1),
-        'area_features': PCA(n_components=1),
+    models = {
+        'location': SelectKBest(f_regression, k=1),
+        # 'site': PCA(n_components=1),
+        'area_features': SelectKBest(f_regression, k=1),
     }
 
     # Initialize Standard Scalers
     scalers = {
         'location': StandardScaler(),
-        'flat_features': StandardScaler(),
+        # 'site': StandardScaler(),
         'area_features': StandardScaler()
     }
 
     # Define the variable groups
-    location_features = ['town', 'block', 'street_name', 'latitude', 'longitude']
-    flat_features = ['flat_type', 'flat_model', 'floor_area_sqm']
+    location_features = ['town', 'block', 'street_name']
+    # site_features = ['latitude', 'longitude']
     area_features = ['subzone', 'planning_area', 'region']
 
-    # 5. Standardize the features for PCA
-    df[location_features] = scalers['location'].fit_transform(df[location_features])
-    df[flat_features] = scalers['flat_features'].fit_transform(df[flat_features])
-    df[area_features] = scalers['area_features'].fit_transform(df[area_features])
+    # 5. Standardize the features for SelectKBest
+    df_train[location_features] = scalers['location'].fit_transform(df_train[location_features])
+    # df_train[site_features] = scalers['site'].fit_transform(df_train[site_features])
+    df_train[area_features] = scalers['area_features'].fit_transform(df_train[area_features])
 
-    # 6. Apply PCA
-    df['location_pca'] = pca_models['location'].fit_transform(df[location_features])
-    df['flat_features_pca'] = pca_models['flat_features'].fit_transform(df[flat_features])
-    df['area_features_pca'] = pca_models['area_features'].fit_transform(df[area_features])
+    df_test[location_features] = scalers['location'].transform(df_test[location_features])
+    # df_test[site_features] = scalers['site'].transform(df_test[site_features])
+    df_test[area_features] = scalers['area_features'].transform(df_test[area_features])
+
+    # 6. Apply Models
+    df_train['location_selectKbest'] = models['location'].fit_transform(df_train[location_features], df_train['monthly_rent'])
+    # df_train['site_pca'] = models['site'].fit_transform(df_train[site_features])
+    df_train['area_features_selectKbest'] = models['area_features'].fit_transform(df_train[area_features], df_train['monthly_rent'])
+
+    df_test['location_selectKbest'] = models['location'].transform(df_test[location_features])
+    # df_test['site_pca'] = models['site'].transform(df_test[site_features])
+    df_test['area_features_selectKbest'] = models['area_features'].transform(df_test[area_features])
 
     # 7. Drop the original variables
-    df = df.drop(location_features + flat_features + area_features, axis=1)
+    # df_train = df_train.drop(location_features + site_features + area_features, axis=1)
+    # df_test = df_test.drop(location_features + site_features + area_features, axis=1)
+    df_train = df_train.drop(location_features + area_features, axis=1)
+    df_test = df_test.drop(location_features + area_features, axis=1)
 
-    return df
+    return df_train, df_test
 
 
 def calculate_distance_vectorized(lat, lon, data):
@@ -167,17 +181,19 @@ def AddAuxiliaryFeatures(df, radius=1, shopping_malls_path=None, mrt_planned_pat
     for name, dataset in auxiliary_datasets.items():
         # Calculate distance to the closest point
         distances, _ = calculate_distance_vectorized(df['latitude'], df['longitude'], dataset)
-        df[f'{name} Closest Dist'] = distances
     
         # Calculate the number of points within the radius
         counts = count_within_radius_vectorized(df['latitude'], df['longitude'], dataset, radius)
-        df[f'{name} Count 1km'] = counts
+        df[f'{name}'] = counts - distances
     
     return df
 
 def stupidNormalize(df):
     # Normalize the lease_commence_date
     df['lease_commence_date'] = df['lease_commence_date'] / 1000
+    df['floor_area_sqm'] = df['floor_area_sqm'] / 100
+    df['latitude'] = df['latitude'] - 1
+    df['longitude'] = df['longitude'] - 100
     return df
     
 
