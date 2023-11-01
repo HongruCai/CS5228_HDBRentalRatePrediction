@@ -14,7 +14,7 @@ def remove_no_use_features(df):
     df = df.drop(['furnished', 'elevation'], axis=1)
     return df
 
-def encode_features(df):
+def encode_features(df, df_test):
     # Initialize label encoders
     label_encoder_dict = {
         'town': LabelEncoder(),
@@ -31,14 +31,22 @@ def encode_features(df):
     df['rent_approval_date'] = (df['rent_approval_date'].dt.year - 2021) + (df['rent_approval_date'].dt.month - 1) / 12
     df['rent_approval_date'] = df['rent_approval_date'].round(2)
 
+    df_test['rent_approval_date'] = pd.to_datetime(df_test['rent_approval_date'])
+    df_test['rent_approval_date'] = (df_test['rent_approval_date'].dt.year - 2021) + (df_test['rent_approval_date'].dt.month - 1) / 12
+    df_test['rent_approval_date'] = df_test['rent_approval_date'].round(2)
+
     # 2. Convert categorical variables to numerical using label encoding
     for col, encoder in label_encoder_dict.items():
-        df[col] = encoder.fit_transform(df[col])
+        unique_values = np.union1d(df[col].unique(), df_test[col].unique())
+        encoder.fit(unique_values)
+        df[col] = encoder.transform(df[col])
+        df_test[col] = encoder.transform(df_test[col])
 
     # 3. Convert flat_type to numerical
     df['flat_type'] = df['flat_type'].replace({'executive': 1}).apply(lambda x: int(''.join(filter(str.isdigit, str(x)))))
+    df_test['flat_type'] = df_test['flat_type'].replace({'executive': 1}).apply(lambda x: int(''.join(filter(str.isdigit, str(x)))))
 
-    return df
+    return df, df_test
 
 def IQR(df):
     df_mahalanobis = df.copy()
@@ -89,9 +97,9 @@ def remove_outliers(df):
 def dimensionality_reduction(df_train, df_test):
     # Initialize PCA models (setting n_components=1 to get a single variable out of each group)
     models = {
-        'location': SelectKBest(f_regression, k=1),
+        'location': PCA(n_components=1),
         # 'site': PCA(n_components=1),
-        'area_features': SelectKBest(f_regression, k=1),
+        'area_features': PCA(n_components=1),
     }
 
     # Initialize Standard Scalers
@@ -116,13 +124,13 @@ def dimensionality_reduction(df_train, df_test):
     df_test[area_features] = scalers['area_features'].transform(df_test[area_features])
 
     # 6. Apply Models
-    df_train['location_selectKbest'] = models['location'].fit_transform(df_train[location_features], df_train['monthly_rent'])
+    df_train['location_pca'] = models['location'].fit_transform(df_train[location_features])
     # df_train['site_pca'] = models['site'].fit_transform(df_train[site_features])
-    df_train['area_features_selectKbest'] = models['area_features'].fit_transform(df_train[area_features], df_train['monthly_rent'])
+    df_train['area_features_pca'] = models['area_features'].fit_transform(df_train[area_features])
 
-    df_test['location_selectKbest'] = models['location'].transform(df_test[location_features])
+    df_test['location_pca'] = models['location'].transform(df_test[location_features])
     # df_test['site_pca'] = models['site'].transform(df_test[site_features])
-    df_test['area_features_selectKbest'] = models['area_features'].transform(df_test[area_features])
+    df_test['area_features_pca'] = models['area_features'].transform(df_test[area_features])
 
     # 7. Drop the original variables
     # df_train = df_train.drop(location_features + site_features + area_features, axis=1)
@@ -188,13 +196,20 @@ def AddAuxiliaryFeatures(df, radius=1, shopping_malls_path=None, mrt_planned_pat
     
     return df
 
-def stupidNormalize(df):
-    # Normalize the lease_commence_date
-    df['lease_commence_date'] = df['lease_commence_date'] / 1000
-    df['floor_area_sqm'] = df['floor_area_sqm'] / 100
-    df['latitude'] = df['latitude'] - 1
-    df['longitude'] = df['longitude'] - 100
-    return df
+def stupidNormalize(df, df_test):
+    df['lease_commence_date'] = df['lease_commence_date'] - 1900
+    df_test['lease_commence_date'] = df_test['lease_commence_date'] - 1900
+    # Standardlize the lease_commence_date
+    date_scaler = StandardScaler()
+    df['lease_commence_date'] = date_scaler.fit_transform(df[['lease_commence_date']])
+    df_test['lease_commence_date'] = date_scaler.transform(df_test[['lease_commence_date']])
+
+    # Standardlize the floor_area_sqm
+    floor_area_scaler = StandardScaler()
+    df['floor_area_sqm'] = floor_area_scaler.fit_transform(df[['floor_area_sqm']])
+    df_test['floor_area_sqm'] = floor_area_scaler.transform(df_test[['floor_area_sqm']])
+
+    return df, df_test
     
 
 
